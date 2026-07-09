@@ -180,6 +180,7 @@ OAUTH_PROVIDERS = [
 # app registration, and Entra emits it in the token's `roles` claim.
 AUTH_ROLES_MAPPING = {
     "Gamma": ["Gamma"],
+    "Admin": ["Admin"],
 }
 
 #
