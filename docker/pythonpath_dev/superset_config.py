@@ -130,6 +130,59 @@ if os.getenv("CYPRESS_CONFIG") == "true":
     sys.path.pop(0)
 
 #
+# ---------------------------------------------------------------------------
+# Microsoft Entra (Azure AD) single sign-on
+# ---------------------------------------------------------------------------
+# Secrets are read from the environment, set in the App Deploy env box and
+# routed into the container by the extra `.env` entry added to the Superset
+# services in docker-compose.yml. Nothing sensitive is committed here.
+# Required env vars: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET
+#
+from flask_appbuilder.security.manager import AUTH_OAUTH  # noqa: E402
+
+AUTH_TYPE = AUTH_OAUTH
+
+# A user who logs in but matches no app role lands on Public, which sees
+# nothing. Real access comes only from the group -> Gamma mapping below.
+AUTH_USER_REGISTRATION = True
+AUTH_USER_REGISTRATION_ROLE = "Public"
+
+# Re-evaluate role membership on every login, so removing someone from the
+# Entra group revokes their Superset access at their next login.
+AUTH_ROLES_SYNC_AT_LOGIN = True
+
+# Superset sits behind the deploy tool's TLS reverse proxy; trust the
+# forwarded headers so the OAuth redirect URI is built as https, not http.
+ENABLE_PROXY_FIX = True
+
+AZURE_TENANT_ID = os.environ.get("AZURE_TENANT_ID")
+
+OAUTH_PROVIDERS = [
+    {
+        "name": "azure",
+        "icon": "fa-windows",
+        "token_key": "access_token",
+        "remote_app": {
+            "client_id": os.environ.get("AZURE_CLIENT_ID"),
+            "client_secret": os.environ.get("AZURE_CLIENT_SECRET"),
+            "api_base_url": f"https://login.microsoftonline.com/{AZURE_TENANT_ID}/oauth2",
+            "request_token_url": None,
+            "access_token_url": f"https://login.microsoftonline.com/{AZURE_TENANT_ID}/oauth2/token",
+            "authorize_url": f"https://login.microsoftonline.com/{AZURE_TENANT_ID}/oauth2/authorize",
+            "jwks_uri": "https://login.microsoftonline.com/common/discovery/v2.0/keys",
+            "client_kwargs": {"scope": "openid email profile"},
+        },
+    }
+]
+
+# Entra App Role value  ->  Superset role.
+# Assign your Power BI Entra group to the "Gamma" app role in the Superset
+# app registration, and Entra emits it in the token's `roles` claim.
+AUTH_ROLES_MAPPING = {
+    "Gamma": ["Gamma"],
+}
+
+#
 # Optionally import superset_config_docker.py (which will have been included on
 # the PYTHONPATH) in order to allow for local settings to be overridden
 #
