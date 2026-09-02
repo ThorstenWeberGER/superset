@@ -27,6 +27,8 @@ import sys
 from celery.schedules import crontab
 from flask_caching.backends.filesystemcache import FileSystemCache
 
+from superset.tasks.types import ExecutorType
+
 logger = logging.getLogger()
 
 DATABASE_DIALECT = os.getenv("DATABASE_DIALECT")
@@ -76,7 +78,29 @@ CACHE_CONFIG = {
     "CACHE_REDIS_PORT": REDIS_PORT,
     "CACHE_REDIS_DB": REDIS_RESULTS_DB,
 }
-DATA_CACHE_CONFIG = CACHE_CONFIG
+
+# Chart/dataset query results - kept separate from CACHE_CONFIG above so
+# this TTL can be long (a Snowflake-outage safety net) without also making
+# the general/session cache stale for two days. A chart only re-queries
+# Snowflake once its cached entry expires; the cache-warmup job below
+# refreshes every entry well inside this window, and a failed query never
+# overwrites a good cache entry (superset/common/query_context_processor.py
+# only writes to cache after a successful query), so a warm-up that hits
+# Snowflake mid-outage just fails silently and the old entry stays valid.
+DATA_CACHE_CONFIG = {
+    **CACHE_CONFIG,
+    "CACHE_DEFAULT_TIMEOUT": 60 * 60 * 48,  # 48h outage safety net
+    "CACHE_KEY_PREFIX": "superset_data_",
+}
+
+# Cache warm-up (below) re-queries Snowflake as this executor. Default is
+# each chart's Owner, which is fine as long as no chart's result depends
+# on who's viewing it (no Row-Level Security in use yet). If per-viewer RLS
+# ships later (RBAC doc chapter 8, Partner_Row_Isolation), warming as a
+# single Owner only refreshes that owner's RLS variant - every other viewer
+# would still miss cache during an outage. Revisit this list then.
+CACHE_WARMUP_EXECUTORS = [ExecutorType.OWNER]
+
 THUMBNAIL_CACHE_CONFIG = CACHE_CONFIG
 
 
@@ -100,12 +124,26 @@ class CeleryConfig:
             "task": "reports.prune_log",
             "schedule": crontab(minute=10, hour=0),
         },
+        # Re-queries every chart every 3h, well inside DATA_CACHE_CONFIG's
+        # 48h TTL above, so a Snowflake outage is bridged by cache instead
+        # of erroring for users.
+        "cache-warmup-every-3-hours": {
+            "task": "cache-warmup",
+            "schedule": crontab(minute=0, hour="*/3"),
+            "kwargs": {"strategy_name": "dummy"},
+        },
     }
 
 
 CELERY_CONFIG = CeleryConfig
 
-FEATURE_FLAGS = {"ALERT_REPORTS": True, "DATASET_FOLDERS": True}
+FEATURE_FLAGS = {
+    "ALERT_REPORTS": True,
+    "DATASET_FOLDERS": True,
+    # Lets a dashboard's own Roles field gate visibility, on top of dataset
+    # access. Required for the C-Level / partner dashboard isolation below.
+    "DASHBOARD_RBAC": True,
+}
 ALERT_REPORTS_NOTIFICATION_DRY_RUN = True
 WEBDRIVER_BASEURL = f"http://superset_app{os.environ.get('SUPERSET_APP_ROOT', '/')}/"  # When using docker compose baseurl should be http://superset_nginx{ENV{BASEPATH}}/  # noqa: E501
 # The base URL for the email report hyperlinks.
@@ -175,13 +213,60 @@ OAUTH_PROVIDERS = [
     }
 ]
 
-# Entra App Role value  ->  Superset role.
-# Assign your Power BI Entra group to the "Gamma" app role in the Superset
-# app registration, and Entra emits it in the token's `roles` claim.
+# Entra App Role value  ->  Superset role(s).
+# Assign each Entra security group to the matching App Role under
+# Entra ID > App registrations > Superset > App roles, then assign that
+# App Role to the group under Enterprise Applications > Superset > Users
+# and groups. Entra then emits every assigned App Role value in the
+# token's `roles` claim, and a user in more than one assigned group gets
+# the union of every matching list below (AUTH_ROLES_SYNC_AT_LOGIN above
+# replaces their role list with that union on every login).
+#
+# "Admin" is the original app role, already assigned in Entra - left as-is
+# so existing logins keep working. The plain "Gamma" app role (no scope
+# role attached) has been dropped: it granted zero implicit data access,
+# so every group that matters is now covered explicitly below instead.
+#
+# Everything below is the access-matrix rollout: it depends on three
+# custom Superset roles (Scope_Gold_Full, Scope_Gold_Restricted,
+# Creator_Capability) that must exist in Settings > List Roles first,
+# with permissions set per the RBAC doc chapter 2.2, or the matching part
+# of a user's role list is silently dropped (unknown role names are
+# ignored, not an error).
+#
+# External Partners are intentionally not here: they're generally not in
+# the Bloomwell Entra tenant, and are handled via Superset Groups instead
+# (RBAC doc chapter 11), not this AD-driven mapping.
 AUTH_ROLES_MAPPING = {
-    "Gamma": ["Gamma"],
     "Admin": ["Admin"],
+    "C_Level": ["Gamma", "Scope_Gold_Full"],
+    "General_Management": ["Gamma", "Scope_Gold_Restricted"],
+    "Finance_Employees": ["Gamma", "Scope_Gold_Full"],
+    "Employees": ["Gamma", "Scope_Gold_Restricted"],
+    # Admin alone already implies unrestricted access to every database
+    # and schema - Alpha/Public would stack on top without adding
+    # anything functionally (RBAC doc 2.1).
+    "Data_Team": ["Admin"],
+    "Superset_Creators": ["sql_lab", "Creator_Capability"],
 }
+
+#
+# MCP service (superset/mcp_service) - internal, VPN-only, dev-mode auth
+# ---------------------------------------------------------------------------
+# superset/mcp_service/mcp_config.py has NO default for MCP_DEV_USERNAME and
+# raises "No authenticated user found" without it. It must be a real Flask
+# config value - setting it only as a container `environment:` var in
+# docker-compose.yml's superset-mcp service does nothing on its own, since
+# Superset doesn't auto-map arbitrary OS env vars into Flask config.
+#
+# Every MCP call acts as this one fixed user (create it via the UI with a
+# restricted role - Scope_Gold_Full + Creator_Capability, not Admin - see
+# docker-compose.yml's superset-mcp service). Fine for a handful of trusted,
+# VPN-only callers; not a substitute for per-caller auth if this ever needs
+# to be reachable more broadly (see superset/mcp_service/PRODUCTION.md's
+# MCP_AUTH_ENABLED / JWT setup for that case - Entra could double as the
+# issuer since it's already wired up above).
+MCP_DEV_USERNAME = os.environ.get("MCP_DEV_USERNAME")
 
 #
 # Optionally import superset_config_docker.py (which will have been included on
