@@ -269,6 +269,117 @@ AUTH_ROLES_MAPPING = {
 MCP_DEV_USERNAME = os.environ.get("MCP_DEV_USERNAME")
 
 #
+# ---------------------------------------------------------------------------
+# Bloomwell branding — app theme, fonts, and chart colors
+# ---------------------------------------------------------------------------
+# Two surfaces, both needed: the app UI (THEME_DEFAULT / THEME_DARK) and the
+# colors charts are actually drawn in (EXTRA_*_COLOR_SCHEMES). Setting the app
+# color alone does NOT change chart series colors — the palette does that.
+#
+
+APP_NAME = "Bloomwell Analytics"
+# APP_ICON = "https://bloomwellit.blob.core.windows.net/frimen-logos/<logo-file>"     # TODO: logo
+# FAVICONS = [{"href": "https://bloomwellit.blob.core.windows.net/frimen-logos/<favicon-file>"}]  # TODO
+
+# Gellix is hosted in Azure Blob Storage, so that host must be allowlisted here.
+# This list also feeds the font-src / style-src CSP, so the browser is allowed
+# to load it. (Azure Blob also needs anonymous read + a CORS rule — see manual.)
+THEME_FONT_URL_ALLOWED_DOMAINS = [
+    "fonts.googleapis.com",
+    "fonts.gstatic.com",
+    "use.typekit.net",
+    "use.typekit.com",
+    "bloomwellit.blob.core.windows.net",
+]
+
+# Shared brand tokens. Only colors and fonts are overridden; the rest stays on
+# Superset's defaults.
+_BLOOMWELL_TOKEN = {
+    "brandAppName": APP_NAME,
+    "brandLogoAlt": "Bloomwell",
+    "brandLogoMargin": "18px 0",
+    "brandLogoHref": "/",
+    "brandLogoHeight": "24px",
+    "brandSpinnerUrl": None,
+    "brandSpinnerSvg": None,
+    "brandIconMaxWidth": 37,
+    # Colors — Bloomwell palette
+    "colorPrimary": "#2A9D8F",   # brand teal: buttons, links, active states
+    "colorLink": "#2A9D8F",
+    "colorInfo": "#2A9D8F",
+    "colorSuccess": "#5AC189",   # kept distinct so success != primary
+    "colorError": "#AB041A",     # secondary dark — on-brand error red
+    "colorWarning": "#FCC700",
+    "colorEditorSelection": "#DDF3F1",  # pale teal SQL Lab highlight
+    # Fonts — Gellix via the hosted @font-face stylesheet
+    "fontFamily": "Gellix, Inter, Helvetica, Arial, sans-serif",
+    "fontFamilyCode": "'IBM Plex Mono', 'Courier New', monospace",
+    "fontUrls": ["https://bloomwellit.blob.core.windows.net/frimen-logos/gellix.css"],
+    # Weights mapped to the Gellix files that exist (no 300, so light = 400)
+    "fontWeightLight": "400",
+    "fontWeightNormal": "400",
+    "fontWeightStrong": "500",
+    "fontWeightBold": "700",
+    "transitionTiming": 0.3,
+}
+
+# Light look (default)
+THEME_DEFAULT = {
+    "token": _BLOOMWELL_TOKEN,
+    "algorithm": "default",
+}
+
+# Dark look — same brand tokens, dark algorithm, with a lighter link/highlight
+# for contrast on dark backgrounds. Defining both enables the user light/dark
+# toggle and OS-preference detection.
+THEME_DARK = {
+    "token": {
+        **_BLOOMWELL_TOKEN,
+        "colorLink": "#7DC4BC",
+        "colorEditorSelection": "#1D877A",
+    },
+    "algorithm": "dark",
+}
+
+# Admins can still preview/tune themes in the UI on top of these.
+ENABLE_UI_THEME_ADMINISTRATION = True
+
+# Chart series colors (categorical). isDefault makes new charts use it.
+EXTRA_CATEGORICAL_COLOR_SCHEMES = [
+    {
+        "id": "bloomwell",
+        "label": "Bloomwell",
+        "description": "Bloomwell brand palette",
+        "isDefault": True,
+        "colors": [
+            "#2A9D8F",  # primary teal
+            "#FF5E73",  # secondary coral
+            "#272D2D",  # brand dark
+            "#7DC4BC",  # tertiary teal
+            "#AB041A",  # secondary dark
+            "#94CEC7",  # primary 50
+            "#FFAEB9",  # secondary 50
+            "#1D877A",  # primary dark
+            "#CAE7E3",  # primary 25
+            "#FFD7DC",  # secondary 25
+        ],
+    }
+]
+
+# Gradients / heatmaps (sequential): single-hue teal ramp, light to dark.
+EXTRA_SEQUENTIAL_COLOR_SCHEMES = [
+    {
+        "id": "bloomwellTeal",
+        "label": "Bloomwell Teal",
+        "isDefault": True,
+        "colors": [
+            "#EAF5F4", "#DDF3F1", "#CAE7E3", "#94CEC7",
+            "#7DC4BC", "#2A9D8F", "#1D877A",
+        ],
+    }
+]
+
+#
 # Optionally import superset_config_docker.py (which will have been included on
 # the PYTHONPATH) in order to allow for local settings to be overridden
 #
