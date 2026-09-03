@@ -36,6 +36,10 @@ services:
     image: redis:7
     container_name: superset_cache
     restart: unless-stopped
+    # volatile-lru only evicts keys with a TTL (all cache entries), never
+    # Celery's broker/result keys, which generally have none.
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "volatile-lru"]
+    mem_limit: 384m
     volumes:
       - redis:/data
 

@@ -36,6 +36,10 @@ services:
     image: redis:7
     container_name: superset_cache
     restart: unless-stopped
+    # volatile-lru only evicts keys with a TTL (all cache entries), never
+    # Celery's broker/result keys, which generally have none.
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "volatile-lru"]
+    mem_limit: 384m
     volumes:
       - redis:/data
 
@@ -137,6 +141,53 @@ services:
     volumes: *superset-volumes
     healthcheck:
       disable: true
+
+  # Internal-only: no per-caller identity (MCP_DEV_USERNAME acts as one
+  # fixed service user for every call), so this must stay off the public
+  # internet - reachable only over VPN. See docker/pythonpath_dev/
+  # superset_config.py for the MCP_DEV_USERNAME wiring this needs, and
+  # PRODUCTION.md/SECURITY.md in superset/mcp_service/ for the JWT-based
+  # upgrade path if that ever stops being enough.
+  superset-mcp:
+    image: *superset-image
+    container_name: superset_mcp
+    command: ["/app/docker/docker-bootstrap.sh", "mcp"]
+    env_file:
+      - path: docker/.env # default
+        required: true
+      - path: docker/.env-local # optional override
+        required: false
+      - path: .env # deploy tool writes this; overrides the defaults
+        required: false
+    environment:
+      MCP_PORT: "5008"
+      # Fixed service identity for every MCP call - not a real person, not
+      # Admin. Create this user with a restricted role (Scope_Gold_Full +
+      # Creator_Capability, see AUTH_ROLES_MAPPING above) via the Superset
+      # UI; no MCP tool manages users/roles.
+      MCP_DEV_USERNAME: mcp_service
+      # Container-to-container address for MCP's own calls back into the
+      # web app (e.g. screenshot rendering) - internal, not the public
+      # https://superset.bloomwell.de/ domain.
+      SUPERSET_WEBSERVER_ADDRESS: http://superset:8088
+    ports:
+      - 5008:5008
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    # Overrides the image's baked-in healthcheck, which always curls the
+    # main webserver's port (8088) regardless of which process the
+    # container runs - this one only runs the MCP process on 5008. A plain
+    # TCP check is used because FastMCP's /mcp endpoint requires POST with
+    # specific Accept headers to return 200 (a plain GET is 405).
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/5008'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    volumes: *superset-volumes
 
 volumes:
   superset_home:
