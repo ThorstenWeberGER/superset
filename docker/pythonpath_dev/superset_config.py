@@ -144,7 +144,12 @@ FEATURE_FLAGS = {
     # access. Required for the C-Level / partner dashboard isolation below.
     "DASHBOARD_RBAC": True,
 }
-ALERT_REPORTS_NOTIFICATION_DRY_RUN = True
+
+# Slack notifications for Alerts & Reports. Bot token is set in the App
+# Deploy env box and routed into the container the same way as the Azure
+# secrets below - nothing sensitive is committed here.
+SLACK_API_TOKEN = os.environ.get("SLACK_API_TOKEN")
+
 WEBDRIVER_BASEURL = f"http://superset_app{os.environ.get('SUPERSET_APP_ROOT', '/')}/"  # When using docker compose baseurl should be http://superset_nginx{ENV{BASEPATH}}/  # noqa: E501
 # The base URL for the email report hyperlinks.
 WEBDRIVER_BASEURL_USER_FRIENDLY = (
