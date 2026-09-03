@@ -151,6 +151,7 @@ services:
   superset-mcp:
     image: *superset-image
     container_name: superset_mcp
+    user: "root"
     command: ["/app/docker/docker-bootstrap.sh", "mcp"]
     env_file:
       - path: docker/.env # default
