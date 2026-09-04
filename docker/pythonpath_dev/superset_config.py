@@ -175,9 +175,13 @@ WEBDRIVER_OPTION_ARGS = [
     "--disable-dev-shm-usage",
     "--disable-gpu",
 ]
-# The base URL for the email report hyperlinks.
+# The base URL for email report hyperlinks and user-facing links returned
+# by the MCP service (chart/explore URLs). Port 8888 was a stale default
+# that matched nothing in this deployment (app is always on 8088) - set
+# SUPERSET_PUBLIC_URL in production to the real https://superset.bloomwell.de
+# domain via the deploy tool's env box.
 WEBDRIVER_BASEURL_USER_FRIENDLY = (
-    f"http://localhost:8888/{os.environ.get('SUPERSET_APP_ROOT', '/')}/"
+    f"{os.environ.get('SUPERSET_PUBLIC_URL', 'http://localhost:8088')}{os.environ.get('SUPERSET_APP_ROOT', '/')}/"
 )
 SQLLAB_CTAS_NO_LIMIT = True
 
