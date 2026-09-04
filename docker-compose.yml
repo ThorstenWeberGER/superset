@@ -101,7 +101,15 @@ services:
   superset-worker:
     image: *superset-image
     container_name: superset_worker
-    command: ["/app/docker/docker-bootstrap.sh", "worker"]
+    # This image ships no browser at all, but alert/report screenshots need
+    # one (WEBDRIVER_TYPE=chrome in superset_config.py) - install it on
+    # every start rather than maintaining a custom image build.
+    command:
+      [
+        "sh",
+        "-c",
+        "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends chromium && exec /app/docker/docker-bootstrap.sh worker",
+      ]
     env_file:
       - path: docker/.env # default
         required: true
@@ -110,6 +118,10 @@ services:
       - path: .env # deploy tool writes this; overrides the defaults
         required: false
     restart: unless-stopped
+    # Docker's 64MB default shared memory isn't enough for the headless
+    # browser that renders alert/report screenshots - it crashes with
+    # "Process unexpectedly closed with status 255" without this.
+    shm_size: 2gb
     depends_on:
       superset-init:
         condition: service_completed_successfully

@@ -32,6 +32,7 @@ cover
 .eggs
 .env
 .envrc
+docker/pythonpath_dev/superset_config_docker.py
 .idea
 .roo
 .mypy_cache

@@ -143,6 +143,10 @@ FEATURE_FLAGS = {
     # Lets a dashboard's own Roles field gate visibility, on top of dataset
     # access. Required for the C-Level / partner dashboard isolation below.
     "DASHBOARD_RBAC": True,
+    # Slack deprecated the files.upload API the legacy notifier uses
+    # (returns "method_deprecated"). This switches Alerts & Reports to the
+    # SlackV2 notifier, which uses the current upload API.
+    "ALERT_REPORT_SLACK_V2": True,
 }
 
 # Slack notifications for Alerts & Reports. Bot token is set in the App
@@ -150,7 +154,27 @@ FEATURE_FLAGS = {
 # secrets below - nothing sensitive is committed here.
 SLACK_API_TOKEN = os.environ.get("SLACK_API_TOKEN")
 
-WEBDRIVER_BASEURL = f"http://superset_app{os.environ.get('SUPERSET_APP_ROOT', '/')}/"  # When using docker compose baseurl should be http://superset_nginx{ENV{BASEPATH}}/  # noqa: E501
+# This compose setup has no nginx in front of superset_app - gunicorn
+# listens on 8088 directly (docker-compose.yml ports: 8088:8088), so the
+# webdriver (used to render screenshots for alerts/reports) needs that port
+# or every screenshot fails with "[Errno 111] Connection refused".
+WEBDRIVER_BASEURL = f"http://superset_app:8088{os.environ.get('SUPERSET_APP_ROOT', '/')}/"  # noqa: E501
+
+# The base image ships no browser - docker-compose.yml's superset-worker
+# command installs Chromium on startup. WEBDRIVER_TYPE defaults to
+# "firefox", which isn't installed anywhere, so screenshots always crash
+# with "Process unexpectedly closed with status 255" without this.
+WEBDRIVER_TYPE = "chrome"
+# Don't add WEBDRIVER_CONFIGURATION's binary_location: superset/utils/
+# webdriver.py has an ordering bug where it leaks into the WebDriver
+# constructor kwargs and crashes with "unexpected keyword argument
+# 'binary_location'". Chromium is on PATH, so Selenium finds it without it.
+WEBDRIVER_OPTION_ARGS = [
+    "--headless",
+    "--no-sandbox",  # container runs the worker as root
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+]
 # The base URL for the email report hyperlinks.
 WEBDRIVER_BASEURL_USER_FRIENDLY = (
     f"http://localhost:8888/{os.environ.get('SUPERSET_APP_ROOT', '/')}/"
